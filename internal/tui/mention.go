@@ -3,6 +3,7 @@ package tui
 import (
 	"sort"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 )
@@ -51,4 +52,98 @@ func MatchUsernames(prefix string, candidates []string) []string {
 		matches = matches[:maxSuggestions]
 	}
 	return matches
+}
+
+// onlinePeers returns the usernames seen within peerWindow, excluding the
+// local user — mentioning yourself never raises a banner.
+func (m Model) onlinePeers() []string {
+	now := time.Now()
+	var peers []string
+	for username, info := range m.lastSeen {
+		if username != m.username && now.Sub(info.lastSeen) < peerWindow {
+			peers = append(peers, username)
+		}
+	}
+	return peers
+}
+
+// textBeforeCursor returns the input text left of the cursor. textinput
+// indexes its value by rune, so slice by rune too.
+func (m Model) textBeforeCursor() string {
+	runes := []rune(m.input.Value())
+	pos := min(m.input.Position(), len(runes))
+	return string(runes[:pos])
+}
+
+// refreshSuggestions recomputes the popup from the text left of the cursor.
+// Called after every keystroke that reaches the input.
+func (m *Model) refreshSuggestions() {
+	m.suggestions = nil
+	m.suggestionIdx = 0
+	if prefix, ok := MentionPrefix(m.textBeforeCursor()); ok {
+		m.suggestions = MatchUsernames(prefix, m.onlinePeers())
+	}
+	m.resizeForSuggestions()
+}
+
+// dismissSuggestions closes the popup without completing anything.
+func (m *Model) dismissSuggestions() {
+	m.suggestions = nil
+	m.suggestionIdx = 0
+	m.resizeForSuggestions()
+}
+
+// resizeForSuggestions borrows the popup's rows from the viewport so the two
+// together still fit the terminal, mirroring how showHelp reserves helpHeight.
+func (m *Model) resizeForSuggestions() {
+	height := 0
+	if len(m.suggestions) > 0 {
+		height = len(m.suggestions) + 1 // entries plus the header rule
+	}
+	if height == m.suggestionHeight {
+		return
+	}
+	if m.ready {
+		m.viewport.Height += m.suggestionHeight - height
+	}
+	m.suggestionHeight = height
+}
+
+// handleSuggestionKey routes navigation and completion keys to the popup while
+// it is open, reporting whether it consumed the key.
+func (m *Model) handleSuggestionKey(key string) bool {
+	if len(m.suggestions) == 0 {
+		return false
+	}
+	switch key {
+	case "up":
+		m.suggestionIdx = (m.suggestionIdx - 1 + len(m.suggestions)) % len(m.suggestions)
+	case "down":
+		m.suggestionIdx = (m.suggestionIdx + 1) % len(m.suggestions)
+	case "enter", "tab":
+		m.completeMention()
+	case "esc":
+		m.dismissSuggestions()
+	default:
+		return false
+	}
+	return true
+}
+
+// completeMention swaps the partial @mention at the cursor for the highlighted
+// username and a trailing space, leaving the cursor after it.
+func (m *Model) completeMention() {
+	runes := []rune(m.input.Value())
+	pos := min(m.input.Position(), len(runes))
+	before := string(runes[:pos])
+
+	prefix, ok := MentionPrefix(before)
+	if !ok {
+		return
+	}
+	completed := before[:len(before)-len(prefix)] + m.suggestions[m.suggestionIdx] + " "
+
+	m.input.SetValue(completed + string(runes[pos:]))
+	m.input.SetCursor(len([]rune(completed)))
+	m.dismissSuggestions()
 }
