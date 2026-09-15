@@ -27,6 +27,7 @@ var teams = []string{
 	"Paved",
 	"Shift",
 	"Redbrick",
+	"Guest",
 }
 
 // NotificationMode controls which incoming chat messages trigger a desktop

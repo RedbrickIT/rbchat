@@ -115,6 +115,7 @@ var teamColors = map[string]lipgloss.Color{
 	"Paved":     "#10B981",
 	"Shift":     "#3B82F6",
 	"Redbrick":  "#EF4444",
+	"Guest":     "#9CA3AF",
 }
 
 func teamStyle(team string) lipgloss.Style {
